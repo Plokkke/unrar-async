@@ -1,32 +1,38 @@
 {
-  "name": "node-unrar-js",
-  "version": "2.0.2",
-  "description": "Pure JavaScript RAR archive extractor by compile the official unrar lib by Emscripten.",
-  "homepage": "https://github.com/YuJianrong/node-unrar.js",
+  "name": "unrar-async",
+  "version": "3.0.0",
+  "description": "Async RAR archive extractor using Worker Threads and Streams. Powered by the official unrar C++ library compiled to WebAssembly.",
+  "homepage": "https://github.com/plokkke/unrar-async",
   "bugs": {
-    "url": "https://github.com/YuJianrong/node-unrar.js/issues"
+    "url": "https://github.com/plokkke/unrar-async/issues"
   },
-  "repository": "YuJianrong/node-unrar.js",
+  "repository": "plokkke/unrar-async",
   "main": "./dist/index.js",
-  "module": "./esm/index.esm.js",
   "scripts": {
     "prepare": "husky install",
     "downloadUnrarSrc": "wget https://www.rarlab.com/rar/unrarsrc-6.1.7.tar.gz && tar -xf unrarsrc-6.1.7.tar.gz -C src/cpp && rm -rf unrarsrc-6.1.7.tar.gz && husky install",
-    "clean": "rm -rf dist coverage dist_map esm",
-    "clean:test": "rm -rf dist/test dist/build esm/test esm/build dist/**/*.map esm/**/*.map",
+    "clean": "rm -rf dist coverage dist_map",
+    "clean:test": "rm -rf dist/test dist/build dist/**/*.map",
     "commit": "cz",
     "lint": "eslint './src/**/*.ts' --max-warnings 0",
     "tsc": "tsc",
     "build:debug": "tsc && node ./dist/build/make.js",
     "prebuild:release": "npm run lint",
-    "build:release": "npm run clean && tsc && node ./dist/build/make.js release && tsc -p tsconfig-esm.json && node ./dist/build/make.js release esm",
+    "build:release": "npm run clean && tsc && node ./dist/build/make.js release",
     "test": "mocha dist/test/*.spec.js",
     "test:debug": "npm run test -- --inspect-brk"
   },
   "keywords": [
-    "unrar"
+    "unrar",
+    "rar",
+    "async",
+    "stream",
+    "wasm",
+    "worker",
+    "extract",
+    "archive"
   ],
-  "author": "Jianrong Yu <yujianrong@gmail.com>",
+  "author": "Antoine Caron <antoine@crn-tech.fr>",
   "license": "MIT",
   "devDependencies": {
     "@commitlint/cli": "^19.2.1",
@@ -51,7 +57,7 @@
     "typescript": "^5.4.3"
   },
   "engines": {
-    "node": ">=10.0.0"
+    "node": ">=18.0.0"
   },
   "lint-staged": {
     "*.{json,md,less,yaml,yml}": [
@@ -68,7 +74,6 @@
   },
   "files": [
     "dist",
-    "esm",
     "*.md"
   ]
 }

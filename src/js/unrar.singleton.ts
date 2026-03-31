@@ -1,11 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { UnrarModule } from './unrar';
 import unrarFactory from './unrar';
 
-let unrar: any;
-
-export async function getUnrar(options?: { wasmBinary?: ArrayBuffer }): Promise<any> {
-  if (!unrar) {
-    unrar = await unrarFactory(options);
-  }
-  return unrar;
+let unrar: UnrarModule;
+export async function getUnrar(options?: { wasmBinary?: ArrayBuffer }): Promise<UnrarModule> {
+  return (unrar ??= await unrarFactory(options));
 }
