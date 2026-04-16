@@ -303,6 +303,23 @@ describe('WasmExtractor', () => {
       assert.deepStrictEqual(heapu8.slice(100, 103), new Uint8Array([42, 43, 44]));
     });
 
+    it('read returns 0 (POSIX EOF) when reading past end of archive', () => {
+      // Critical: returning -1 at EOF makes the C++ unrar core enter its
+      // read-error branch which calls fgetws(stdin), freezing the WASM worker
+      // on truncated/damaged archives.
+      const archive = makeMockRarArchive([]);
+      const data = new Uint8Array([1, 2, 3]).buffer;
+      const heapu8 = new Uint8Array(1024);
+      const unrar = makeMockUnrar(archive);
+      unrar.HEAPU8 = heapu8;
+      const { callbacks } = makeCallbackTracker();
+      const extractor = new WasmExtractor(unrar, data, '', callbacks);
+
+      const archiveFd = extractor.open('_defaultUnrarJS_.rar');
+      assert.strictEqual(extractor.read(archiveFd, 0, 3), 3);
+      assert.strictEqual(extractor.read(archiveFd, 0, 1), 0);
+    });
+
     it('tell returns position on archive fd', () => {
       const archive = makeMockRarArchive([]);
       const data = new Uint8Array([1, 2, 3, 4, 5]).buffer;

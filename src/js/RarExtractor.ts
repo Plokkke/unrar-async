@@ -32,7 +32,15 @@ async function readableToArrayBuffer(stream: Readable): Promise<ArrayBuffer> {
 
 export interface ExtractorOptions {
   password?: string;
+  /**
+   * Hard cap on inactivity (no worker message received) before the extraction
+   * is considered hung. Defends against any WASM-side infinite loop on damaged
+   * archives. Default: 5 minutes.
+   */
+  idleTimeoutMs?: number;
 }
+
+const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Orchestrates WASM extraction in a worker thread.
@@ -79,12 +87,36 @@ export class RarExtractor {
 
   public async extract(options: ExtractOptions = {}): Promise<ExtractResult<Readable>> {
     const fileFilter = options.files;
+    const idleTimeoutMs = this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
 
     // --- Message infrastructure ---
     // fileQueue: completed ArcFile items ready to be yielded
     // resolveFile: when the generator needs the next file, it awaits this
     const fileQueue: (ArcFile<Readable> | 'done' | UnrarError)[] = [];
     let resolveFile: ((v: ArcFile<Readable> | 'done' | UnrarError) => void) | null = null;
+
+    // Inactivity watchdog: terminate the worker if it stops reporting progress.
+    let idleTimer: NodeJS.Timeout | null = null;
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        idleTimer = null;
+        this.terminate();
+        enqueueFile(
+          new UnrarError(
+            'ERAR_UNKNOWN' as never,
+            `Extraction stalled: no activity from worker in ${idleTimeoutMs}ms`,
+          ),
+        );
+      }, idleTimeoutMs);
+      idleTimer.unref();
+    };
+    const disarmIdleTimer = () => {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
+    };
 
     const enqueueFile = (item: ArcFile<Readable> | 'done' | UnrarError) => {
       if (resolveFile) {
@@ -113,6 +145,7 @@ export class RarExtractor {
     let phase = 1;
 
     this.worker.on('message', (msg: WorkerResponse) => {
+      armIdleTimer();
       if (phase === 1) {
         if (phase1Resolve) {
           const resolve = phase1Resolve;
@@ -158,6 +191,7 @@ export class RarExtractor {
             activeStream.push(null);
             activeStream = null;
           }
+          disarmIdleTimer();
           this.terminate();
           enqueueFile('done');
           break;
@@ -167,12 +201,14 @@ export class RarExtractor {
             activeStream.destroy();
             activeStream = null;
           }
+          disarmIdleTimer();
           this.terminate();
           enqueueFile(new UnrarError(msg.reason as never, msg.message, msg.file));
           break;
         }
 
         case WorkerResponseType.FileList:
+          disarmIdleTimer();
           this.terminate();
           enqueueFile(
             new UnrarError('ERAR_UNKNOWN' as never, 'Unexpected FileList during extraction'),
@@ -180,6 +216,9 @@ export class RarExtractor {
           break;
       }
     });
+
+    // Arm the watchdog for the initial GetFileList round-trip.
+    armIdleTimer();
 
     // Worker errors are handled via message protocol. The base 'error'
     // handler in the constructor prevents uncaught exceptions.

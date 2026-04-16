@@ -121,7 +121,11 @@ export class WasmExtractor implements WasmFileIO {
   public read(fd: number, index: number, size: number): number {
     if (fd !== ARCHIVE_FD) return -1;
     const data = this.rarFile.read(size);
-    if (data === null) return -1;
+    // POSIX read() convention: return 0 at EOF, -1 only on actual I/O errors.
+    // Returning -1 at EOF makes the unrar C++ core enter its read-error branch
+    // which ultimately calls fgetws(stdin) — unbounded blocking in a WASM
+    // worker with no stdin, freezing the process on truncated/damaged archives.
+    if (data === null) return 0;
     this.unrar.HEAPU8.set(data, index);
     return data.byteLength;
   }
