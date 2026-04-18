@@ -14,7 +14,7 @@ function createWorker(fileName: string, password = ''): Worker {
   const data = readTestFile(fileName);
   const workerPath = path.join(__dirname, '..', 'js', 'ExtractorWorker.js');
   return new Worker(workerPath, {
-    workerData: { data, password },
+    workerData: { mode: 'buffer', buffer: data, password },
     transferList: [data],
   });
 }

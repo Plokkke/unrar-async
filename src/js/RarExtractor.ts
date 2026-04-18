@@ -1,43 +1,38 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { Worker } from 'worker_threads';
+import { Worker } from 'node:worker_threads';
 
-import type { WorkerMessage, WorkerResponse } from './ExtractorWorker';
+import type { WorkerInitData, WorkerMessage, WorkerResponse } from './ExtractorWorker';
 import { WorkerMessageType, WorkerResponseType } from './ExtractorWorker';
-import { ArcFile, ExtractOptions, ExtractResult, FileHeader, UnrarError } from './types';
-
-async function readableToArrayBuffer(stream: Readable): Promise<ArrayBuffer> {
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of stream) {
-    if (chunk instanceof Uint8Array) {
-      chunks.push(new Uint8Array(chunk));
-    } else if (typeof chunk === 'string') {
-      chunks.push(new TextEncoder().encode(chunk));
-    } else {
-      throw new TypeError(
-        `Unexpected stream chunk type: ${typeof chunk}. Expected Buffer, Uint8Array, or string.`,
-      );
-    }
-  }
-  const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result.buffer as ArrayBuffer;
-}
+import { Seekable } from './seekables/Seekable';
+import {
+  SeekableBridgeHost,
+  BridgeSharedBuffers as BridgeSharedBuffers,
+} from './seekables/SeekableBridge';
+import { ArcFile, ExtractOptions, ExtractResult, FileHeader, UnRARError } from './types';
 
 export interface ExtractorOptions {
   password?: string;
   /**
    * Hard cap on inactivity (no worker message received) before the extraction
    * is considered hung. Defends against any WASM-side infinite loop on damaged
-   * archives. Default: 5 minutes.
+   * archives that ALSO stops producing worker messages. Default: 5 minutes.
    */
   idleTimeoutMs?: number;
+  /**
+   * Per-file output cap expressed as a multiple of the declared `unpSize`.
+   * Defends against damaged archives whose corrupt header lies about the
+   * uncompressed size, making the decoder emit chunks indefinitely (which
+   * would reset the idle watchdog and burn CPU at 100%). Set to 0 or
+   * `Infinity` to disable. Default: 2.
+   */
+  outputSizeLimitFactor?: number;
+  /**
+   * Emit verbose tracing logs from both the worker and the WASM<->JS boundary.
+   * Defaults to the truthiness of `process.env.UNRAR_DEBUG` in the worker.
+   */
+  debug?: boolean;
 }
 
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -51,51 +46,86 @@ const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  * The generator yields completed or actively-streaming ArcFile items
  * via a queue that the message handler populates.
  */
-export class RarExtractor {
-  private worker: Worker;
+export class RARExtractor {
   private terminated = false;
 
   private constructor(
-    data: ArrayBuffer,
+    private worker: Worker,
     private readonly options: ExtractorOptions,
   ) {
-    const workerPath = path.join(__dirname, 'ExtractorWorker.js');
-    this.worker = new Worker(workerPath, {
-      workerData: { data, password: options.password ?? '' },
-      transferList: [data],
-    });
-    // Prevent unhandled 'error' events from crashing the process.
-    // Errors are handled via the message protocol (WorkerResponseType.Error).
     this.worker.on('error', () => {});
   }
 
+  private static buildWorker(mode: 'file', payload: string, options: ExtractorOptions): Worker;
+  private static buildWorker(
+    mode: 'buffer',
+    payload: ArrayBuffer,
+    options: ExtractorOptions,
+  ): Worker;
+  private static buildWorker(
+    mode: 'seekable',
+    payload: BridgeSharedBuffers,
+    options: ExtractorOptions,
+  ): Worker;
+  private static buildWorker(
+    mode: 'file' | 'buffer' | 'seekable',
+    payload: string | ArrayBuffer | BridgeSharedBuffers,
+    options: ExtractorOptions,
+  ): Worker {
+    const workerPath = path.join(__dirname, 'ExtractorWorker.js');
+    const worker = new Worker(workerPath, {
+      workerData: {
+        mode,
+        filepath: mode === 'file' ? payload : undefined,
+        buffer: mode === 'buffer' ? payload : undefined,
+        sabs: mode === 'seekable' ? payload : undefined,
+        password: options.password ?? '',
+        extractorOptions: {
+          outputSizeLimitFactor: options.outputSizeLimitFactor,
+          debug: options.debug,
+        },
+      },
+      transferList: payload instanceof ArrayBuffer ? [payload] : undefined,
+    });
+
+    return worker;
+  }
+
+  static async fromFile(filepath: string, options: ExtractorOptions = {}): Promise<RARExtractor> {
+    await fs.access(filepath);
+    return new RARExtractor(RARExtractor.buildWorker('file', filepath, options), options);
+  }
+
   static async fromBuffer(
-    data: ArrayBuffer,
+    data: ArrayBuffer | Uint8Array,
     options: ExtractorOptions = {},
-  ): Promise<RarExtractor> {
-    return new RarExtractor(data, options);
+  ): Promise<RARExtractor> {
+    const buffer =
+      data instanceof Uint8Array
+        ? (data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer)
+        : data;
+
+    return new RARExtractor(RARExtractor.buildWorker('buffer', buffer, options), options);
   }
 
-  static async fromStream(stream: Readable, options: ExtractorOptions = {}): Promise<RarExtractor> {
-    return new RarExtractor(await readableToArrayBuffer(stream), options);
-  }
+  static async fromSeekable(
+    seekable: Seekable,
+    options: ExtractorOptions = {},
+  ): Promise<RARExtractor> {
+    const bridge = new SeekableBridgeHost(seekable);
+    const worker = RARExtractor.buildWorker('seekable', bridge.sharedBuffers, options);
+    worker.on('message', (msg: unknown) => bridge.onMessage(msg));
 
-  static async fromFile(filepath: string, options: ExtractorOptions = {}): Promise<RarExtractor> {
-    const data = await fs.readFile(filepath);
-    return new RarExtractor(<ArrayBuffer>data.buffer, options);
+    return new RARExtractor(worker, options);
   }
 
   public async extract(options: ExtractOptions = {}): Promise<ExtractResult<Readable>> {
     const fileFilter = options.files;
     const idleTimeoutMs = this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
 
-    // --- Message infrastructure ---
-    // fileQueue: completed ArcFile items ready to be yielded
-    // resolveFile: when the generator needs the next file, it awaits this
-    const fileQueue: (ArcFile<Readable> | 'done' | UnrarError)[] = [];
-    let resolveFile: ((v: ArcFile<Readable> | 'done' | UnrarError) => void) | null = null;
+    const fileQueue: (ArcFile<Readable> | 'done' | UnRARError)[] = [];
+    let resolveFile: ((v: ArcFile<Readable> | 'done' | UnRARError) => void) | null = null;
 
-    // Inactivity watchdog: terminate the worker if it stops reporting progress.
     let idleTimer: NodeJS.Timeout | null = null;
     const armIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -103,7 +133,7 @@ export class RarExtractor {
         idleTimer = null;
         this.terminate();
         enqueueFile(
-          new UnrarError(
+          new UnRARError(
             'ERAR_UNKNOWN' as never,
             `Extraction stalled: no activity from worker in ${idleTimeoutMs}ms`,
           ),
@@ -118,7 +148,7 @@ export class RarExtractor {
       }
     };
 
-    const enqueueFile = (item: ArcFile<Readable> | 'done' | UnrarError) => {
+    const enqueueFile = (item: ArcFile<Readable> | 'done' | UnRARError) => {
       if (resolveFile) {
         const resolve = resolveFile;
         resolveFile = null;
@@ -128,7 +158,7 @@ export class RarExtractor {
       }
     };
 
-    const waitForFile = (): Promise<ArcFile<Readable> | 'done' | UnrarError> => {
+    const waitForFile = (): Promise<ArcFile<Readable> | 'done' | UnRARError> => {
       const queued = fileQueue.shift();
       if (queued) return Promise.resolve(queued);
       return new Promise((resolve) => {
@@ -136,7 +166,6 @@ export class RarExtractor {
       });
     };
 
-    // Phase 1 uses a simple message queue (only fileList or error expected)
     let phase1Resolve: ((msg: WorkerResponse) => void) | null = null;
     const phase1Queue: WorkerResponse[] = [];
 
@@ -145,6 +174,8 @@ export class RarExtractor {
     let phase = 1;
 
     this.worker.on('message', (msg: WorkerResponse) => {
+      // Bridge requests must not be interpreted as protocol messages.
+      if ((msg as unknown as { __bridge?: boolean }).__bridge === true) return;
       armIdleTimer();
       if (phase === 1) {
         if (phase1Resolve) {
@@ -157,11 +188,9 @@ export class RarExtractor {
         return;
       }
 
-      // Phase 2: route messages
       switch (msg.type) {
         case WorkerResponseType.File:
           activeStream = new PassThrough();
-          // Prevent uncaught 'error' if destroy(err) is called before consumer attaches
           activeStream.on('error', () => {});
           activeFileHeader = msg.fileHeader;
           enqueueFile({
@@ -203,7 +232,7 @@ export class RarExtractor {
           }
           disarmIdleTimer();
           this.terminate();
-          enqueueFile(new UnrarError(msg.reason as never, msg.message, msg.file));
+          enqueueFile(new UnRARError(msg.reason as never, msg.message, msg.file));
           break;
         }
 
@@ -211,19 +240,14 @@ export class RarExtractor {
           disarmIdleTimer();
           this.terminate();
           enqueueFile(
-            new UnrarError('ERAR_UNKNOWN' as never, 'Unexpected FileList during extraction'),
+            new UnRARError('ERAR_UNKNOWN' as never, 'Unexpected FileList during extraction'),
           );
           break;
       }
     });
 
-    // Arm the watchdog for the initial GetFileList round-trip.
     armIdleTimer();
 
-    // Worker errors are handled via message protocol. The base 'error'
-    // handler in the constructor prevents uncaught exceptions.
-
-    // --- Phase 1: get file list ---
     this.worker.postMessage({ type: WorkerMessageType.GetFileList } satisfies WorkerMessage);
 
     const waitPhase1 = (): Promise<WorkerResponse> => {
@@ -237,7 +261,7 @@ export class RarExtractor {
     const fileListMsg = await waitPhase1();
     if (fileListMsg.type === WorkerResponseType.Error) {
       this.terminate();
-      throw new UnrarError(fileListMsg.reason as never, fileListMsg.message, fileListMsg.file);
+      throw new UnRARError(fileListMsg.reason as never, fileListMsg.message, fileListMsg.file);
     }
     if (fileListMsg.type !== WorkerResponseType.FileList) {
       this.terminate();
@@ -248,7 +272,6 @@ export class RarExtractor {
     const fileCount = fileHeaders.length;
     const totalSize = fileHeaders.reduce((sum, fh) => sum + fh.unpSize, 0);
 
-    // Resolve callback filter → name list
     let fileNames: string[] | undefined;
     if (fileFilter) {
       if (Array.isArray(fileFilter)) {
@@ -258,7 +281,6 @@ export class RarExtractor {
       }
     }
 
-    // --- Phase 2: extract files ---
     phase = 2;
     this.worker.postMessage({
       type: WorkerMessageType.Extract,
@@ -269,7 +291,7 @@ export class RarExtractor {
       for (;;) {
         const item = await waitForFile();
         if (item === 'done') return;
-        if (item instanceof UnrarError) throw item;
+        if (item instanceof UnRARError) throw item;
         yield item;
       }
     }

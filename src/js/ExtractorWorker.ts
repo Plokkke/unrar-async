@@ -1,6 +1,18 @@
-import { parentPort, workerData } from 'worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
+
+import { SyncSeekable } from './seekables/Seekable';
+import { SeekableBridgeClient, BridgeSharedBuffers } from './seekables/SeekableBridge';
+import { SeekableBuffer } from './seekables/SeekableBuffer';
+import { SeekableFile } from './seekables/SeekableFile';
 import { ArcHeader, FileHeader } from './types';
-import { WasmExtractor } from './WasmExtractor';
+import { WasmExtractor, WasmExtractorOptions } from './WasmExtractor';
+
+const WORKER_DEBUG = Boolean(process.env?.UNRAR_DEBUG);
+function dbg(msg: string): void {
+  if (!WORKER_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.error(`[unrar-worker ${new Date().toISOString()}] ${msg}`);
+}
 
 export enum WorkerMessageType {
   GetFileList = 'getFileList',
@@ -35,6 +47,15 @@ export type WorkerResponse =
       file?: string;
     };
 
+export type WorkerInitData = {
+  password: string;
+  extractorOptions?: WasmExtractorOptions;
+} & (
+  | { mode: 'file'; filepath: string }
+  | { mode: 'buffer'; buffer: ArrayBuffer }
+  | { mode: 'seekable'; sabs: BridgeSharedBuffers }
+);
+
 function post(msg: WorkerResponse, transfer?: ArrayBuffer[]) {
   parentPort!.postMessage(msg, transfer ?? []);
 }
@@ -48,33 +69,71 @@ function postError(err: unknown) {
   });
 }
 
-async function run() {
-  const { data, password } = workerData as { data: ArrayBuffer; password: string };
+function buildReader(init: WorkerInitData): SyncSeekable {
+  switch (init.mode) {
+    case 'file':
+      return new SeekableFile(init.filepath);
+    case 'buffer':
+      return new SeekableBuffer(new Uint8Array(init.buffer));
+    case 'seekable':
+      return new SeekableBridgeClient(init.sabs);
+  }
+}
 
-  const extractor = await WasmExtractor.create(data, password, {
-    onDirectory: (fileHeader) => post({ type: WorkerResponseType.Directory, fileHeader }),
-    onCreate: (fileHeader) => post({ type: WorkerResponseType.File, fileHeader }),
-    onWrite: (chunk) =>
-      post({ type: WorkerResponseType.Chunk, data: chunk }, [chunk.buffer as ArrayBuffer]),
-    onClose: () => post({ type: WorkerResponseType.FileEnd }),
-  });
+async function run() {
+  const init = workerData as WorkerInitData;
+  const { password, extractorOptions, mode } = init;
+
+  dbg(`worker start mode=${mode} extractorOptions=${JSON.stringify(extractorOptions ?? {})}`);
+
+  const reader = buildReader(init);
+
+  const extractor = await WasmExtractor.create(
+    reader,
+    password,
+    {
+      onDirectory: (fileHeader) => {
+        dbg(`onDirectory name="${fileHeader.name}"`);
+        post({ type: WorkerResponseType.Directory, fileHeader });
+      },
+      onCreate: (fileHeader) => {
+        dbg(`onCreate name="${fileHeader.name}" unpSize=${fileHeader.unpSize}`);
+        post({ type: WorkerResponseType.File, fileHeader });
+      },
+      onWrite: (chunk) =>
+        post({ type: WorkerResponseType.Chunk, data: chunk }, [chunk.buffer as ArrayBuffer]),
+      onClose: () => {
+        dbg('onClose');
+        post({ type: WorkerResponseType.FileEnd });
+      },
+    },
+    extractorOptions,
+  );
 
   parentPort!.on('message', (msg: WorkerMessage) => {
     try {
       if (msg.type === WorkerMessageType.GetFileList) {
+        dbg('GetFileList');
         const { arcHeader, fileHeaders: headerGen } = extractor.getFileList();
-        post({ type: WorkerResponseType.FileList, arcHeader, fileHeaders: [...headerGen] });
+        const headers = [...headerGen];
+        dbg(`GetFileList done count=${headers.length}`);
+        post({ type: WorkerResponseType.FileList, arcHeader, fileHeaders: headers });
       } else if (msg.type === WorkerMessageType.Extract) {
+        dbg(`Extract start fileNames=${msg.fileNames ? JSON.stringify(msg.fileNames) : 'ALL'}`);
         const { files } = extractor.extract({ files: msg.fileNames });
 
+        let count = 0;
         let result: IteratorResult<{ fileHeader: FileHeader }>;
         do {
           result = files.next();
+          if (!result.done) count++;
         } while (!result.done);
 
+        dbg(`Extract done filesYielded=${count}`);
         post({ type: WorkerResponseType.Done });
       }
     } catch (err) {
+      dbg(`Extract error ${err instanceof Error ? err.message : String(err)}`);
       postError(err);
     }
   });

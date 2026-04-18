@@ -1,13 +1,13 @@
 import * as assert from 'assert';
 import { Readable } from 'stream';
-import { RarExtractor } from '../js/RarExtractor';
-import { UnrarError } from '../js/types';
+import { RARExtractor } from '../js/RARExtractor';
+import { UnRARError } from '../js/types';
 
 describe('Integration', function () {
   this.timeout(10_000);
 
   it('returns metadata before iterating files', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/FolderTest.rar');
+    const extractor = await RARExtractor.fromFile('./testFiles/FolderTest.rar');
     const result = await extractor.extract();
 
     assert.ok(result.arcHeader);
@@ -22,7 +22,7 @@ describe('Integration', function () {
   });
 
   it('streams file content via Readable', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/WithComment.rar');
+    const extractor = await RARExtractor.fromFile('./testFiles/WithComment.rar');
     const { files } = await extractor.extract();
 
     for await (const { fileHeader, extraction } of files) {
@@ -38,7 +38,7 @@ describe('Integration', function () {
   });
 
   it('filters files by name array', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/FolderTest.rar');
+    const extractor = await RARExtractor.fromFile('./testFiles/FolderTest.rar');
     const { files } = await extractor.extract({
       files: ['Folder1/Folder Space/long.txt'],
     });
@@ -59,7 +59,7 @@ describe('Integration', function () {
   });
 
   it('filters files by callback', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/FolderTest.rar');
+    const extractor = await RARExtractor.fromFile('./testFiles/FolderTest.rar');
     const { files } = await extractor.extract({
       files: (fh) => !fh.flags.directory,
     });
@@ -80,7 +80,7 @@ describe('Integration', function () {
   });
 
   it('handles password-protected archives', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/HeaderEnc1234.rar', {
+    const extractor = await RARExtractor.fromFile('./testFiles/HeaderEnc1234.rar', {
       password: '1234',
     });
     const { arcHeader } = await extractor.extract();
@@ -90,14 +90,14 @@ describe('Integration', function () {
   });
 
   it('throws UnrarError for encrypted archive without password', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/HeaderEnc1234.rar');
+    const extractor = await RARExtractor.fromFile('./testFiles/HeaderEnc1234.rar');
     await assert.rejects(() => extractor.extract(), {
       message: 'Password for encrypted file or header is not specified',
     });
   });
 
   it('does not block the event loop', async () => {
-    const extractor = await RarExtractor.fromFile('./testFiles/FolderTest.rar');
+    const extractor = await RARExtractor.fromFile('./testFiles/FolderTest.rar');
     const { files } = await extractor.extract();
 
     let timerFired = false;

@@ -1,6 +1,6 @@
 {
   "name": "unrar-async",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Async RAR archive extractor using Worker Threads and Streams. Powered by the official unrar C++ library compiled to WebAssembly.",
   "homepage": "https://github.com/plokkke/unrar-async",
   "bugs": {

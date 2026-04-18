@@ -16,14 +16,14 @@ export type FailReason =
   | 'ERAR_EREFERENCE'
   | 'ERAR_BAD_PASSWORD';
 
-export class UnrarError extends Error {
+export class UnRARError extends Error {
   constructor(
     public reason: FailReason,
     message: string,
     public file?: string,
   ) {
     super(message);
-    Object.setPrototypeOf(this, UnrarError.prototype);
+    Object.setPrototypeOf(this, UnRARError.prototype);
   }
 }
 

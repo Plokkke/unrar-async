@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { SeekableBuffer } from '../js/seekables/SeekableBuffer';
 import { WasmExtractor, WasmExtractorCallbacks } from '../js/WasmExtractor';
 import { FileHeader } from '../js/types';
 import type {
@@ -85,7 +86,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
       assert.strictEqual(unrar.extractor, extractor);
     });
   });
@@ -96,7 +102,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive(headers);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { fileHeaders } = extractor.getFileList();
       const list = [...fileHeaders];
@@ -110,7 +121,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { fileHeaders } = extractor.getFileList();
       assert.deepStrictEqual([...fileHeaders], []);
@@ -121,7 +137,12 @@ describe('WasmExtractor', () => {
       archive.open = () => makeWasmArcHeader({ comment: 'test', flags: 0x0089 }); // volume + solid + headerEncrypted
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { arcHeader } = extractor.getFileList();
       assert.strictEqual(arcHeader.comment, 'test');
@@ -138,7 +159,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive(headers);
       const unrar = makeMockUnrar(archive);
       const { calls, callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { files } = extractor.extract();
       [...files]; // consume generator
@@ -153,7 +179,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive(headers);
       const unrar = makeMockUnrar(archive);
       const { calls, callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { files } = extractor.extract();
       [...files];
@@ -170,7 +201,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive(headers);
       const unrar = makeMockUnrar(archive);
       const { calls, callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { files } = extractor.extract({ files: ['a.txt', 'c.txt'] });
       const list = [...files];
@@ -189,7 +225,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive(headers);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { files } = extractor.extract({
         files: (fh) => fh.name.endsWith('.txt'),
@@ -206,7 +247,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive(headers);
       const unrar = makeMockUnrar(archive);
       const { calls, callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { files } = extractor.extract({ files: ['a.txt'] });
       [...files];
@@ -222,7 +268,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(10), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(10)),
+        '',
+        callbacks,
+      );
 
       assert.ok(extractor.open('_defaultUnrarJS_.rar') > 0);
     });
@@ -231,7 +282,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(10), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(10)),
+        '',
+        callbacks,
+      );
 
       assert.strictEqual(extractor.open('unknown.rar'), -1);
     });
@@ -240,7 +296,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const fd1 = extractor.create();
       const fd2 = extractor.create();
@@ -252,7 +313,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { calls, callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const fd = extractor.create();
       extractor.close(fd);
@@ -267,7 +333,12 @@ describe('WasmExtractor', () => {
       const unrar = makeMockUnrar(archive);
       unrar.HEAPU8 = heapu8;
       const { calls, callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const fd = extractor.create();
       const result = extractor.write(fd, 0, 3);
@@ -281,7 +352,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(10), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(10)),
+        '',
+        callbacks,
+      );
 
       const archiveFd = extractor.open('_defaultUnrarJS_.rar');
       assert.strictEqual(extractor.write(archiveFd, 0, 1), false);
@@ -294,7 +370,12 @@ describe('WasmExtractor', () => {
       const unrar = makeMockUnrar(archive);
       unrar.HEAPU8 = heapu8;
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, data, '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(data)),
+        '',
+        callbacks,
+      );
 
       const archiveFd = extractor.open('_defaultUnrarJS_.rar');
       const bytesRead = extractor.read(archiveFd, 100, 3);
@@ -313,7 +394,12 @@ describe('WasmExtractor', () => {
       const unrar = makeMockUnrar(archive);
       unrar.HEAPU8 = heapu8;
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, data, '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(data)),
+        '',
+        callbacks,
+      );
 
       const archiveFd = extractor.open('_defaultUnrarJS_.rar');
       assert.strictEqual(extractor.read(archiveFd, 0, 3), 3);
@@ -325,7 +411,12 @@ describe('WasmExtractor', () => {
       const data = new Uint8Array([1, 2, 3, 4, 5]).buffer;
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, data, '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(data)),
+        '',
+        callbacks,
+      );
 
       const fd = extractor.open('_defaultUnrarJS_.rar');
       assert.strictEqual(extractor.tell(fd), 0);
@@ -338,7 +429,12 @@ describe('WasmExtractor', () => {
       const data = new Uint8Array(10).buffer;
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, data, '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(data)),
+        '',
+        callbacks,
+      );
 
       const fd = extractor.open('_defaultUnrarJS_.rar');
       assert.strictEqual(extractor.seek(fd, 5, 'SET'), true);
@@ -349,7 +445,12 @@ describe('WasmExtractor', () => {
       const archive = makeMockRarArchive([]);
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const fd = extractor.create();
       assert.strictEqual(extractor.read(fd, 0, 1), -1);
@@ -364,7 +465,12 @@ describe('WasmExtractor', () => {
       archive.open = () => makeWasmArcHeader({ state: makeWasmState(22, 'ERR_OPEN') });
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       assert.throws(
         () => extractor.getFileList(),
@@ -378,7 +484,12 @@ describe('WasmExtractor', () => {
       archive.readFile = () => makeWasmState(22, 'ERR_PROCESS');
       const unrar = makeMockUnrar(archive);
       const { callbacks } = makeCallbackTracker();
-      const extractor = new WasmExtractor(unrar, new ArrayBuffer(0), '', callbacks);
+      const extractor = new WasmExtractor(
+        unrar,
+        new SeekableBuffer(new Uint8Array(0)),
+        '',
+        callbacks,
+      );
 
       const { files } = extractor.extract();
       assert.throws(() => [...files]);
